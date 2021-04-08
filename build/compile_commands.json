@@ -1,0 +1,12 @@
+[
+{
+  "directory": "/home/marcus/Workspace/Coding/C++/Cpp-OpenCL/build",
+  "command": "/usr/bin/c++   -I/home/marcus/Workspace/Coding/C++/Cpp-OpenCL/include -I/usr/include/eigen3    -o CMakeFiles/matrix.dir/src/matrix.cpp.o -c /home/marcus/Workspace/Coding/C++/Cpp-OpenCL/src/matrix.cpp",
+  "file": "/home/marcus/Workspace/Coding/C++/Cpp-OpenCL/src/matrix.cpp"
+},
+{
+  "directory": "/home/marcus/Workspace/Coding/C++/Cpp-OpenCL/build",
+  "command": "/usr/bin/c++   -I/home/marcus/Workspace/Coding/C++/Cpp-OpenCL/include -I/usr/include/eigen3    -o CMakeFiles/test.dir/src/main.cpp.o -c /home/marcus/Workspace/Coding/C++/Cpp-OpenCL/src/main.cpp",
+  "file": "/home/marcus/Workspace/Coding/C++/Cpp-OpenCL/src/main.cpp"
+}
+]

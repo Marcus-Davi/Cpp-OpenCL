@@ -6,181 +6,154 @@
 #endif
 
 #include <chrono>
+#include <cstring>
+#include <Eigen/Dense>
 
 #include "clErrors.h"
+#include "kernelLoader.h"
 
 #define MAX_SOURCE_SIZE (0x100000)
 
 #define STRING_BUFFER_LEN 128
+#define BLOCK_SIZE 2
+typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Matrix;
 
 using namespace std;
+
+void Check(const char* log, const int ret)
+{
+        if (ret != 0)
+        {
+                cout << log << ": " << getClErrorString(ret) << endl;
+                exit(-1);
+        }
+}
 
 void DevQuery();
 
 int main(int argc, char **argv)
 {
 
-        DevQuery();
+        // DevQuery();
 
-        // Create the two input vectors
-        int NElements;
+        cl_platform_id *platform = new cl_platform_id[2];
+        cl_device_id device;
+        cl_int ret;
+
+        ret = clGetPlatformIDs(2, platform, NULL);
+
+        ret = clGetDeviceIDs(platform[1], CL_DEVICE_TYPE_ALL, 1, &device, NULL);
+
+        char devName[100];
+        ret = clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(devName), devName, NULL);
+
+        int squareMatrixSize;
+
         if (argc < 2)
         {
-                NElements = 1000000;
+                squareMatrixSize = 1; // 5 x 5
         }
         else
         {
-                NElements = atoi(argv[1]);
+                squareMatrixSize = atoi(argv[1]);
         }
 
-        std::cout << "# Elements: " << NElements << std::endl;
+        cout << "Square Matrix Size: " << squareMatrixSize << endl;
 
-        std::chrono::high_resolution_clock::time_point start, end;
+        Matrix A(squareMatrixSize, squareMatrixSize);
+        Matrix B(squareMatrixSize, squareMatrixSize);
+        Matrix C(squareMatrixSize, squareMatrixSize);
 
-        // Load the kernel source code into the array source_str
-        FILE *fp;
-        char *source_str;
-        size_t source_size;
-
-        fp = fopen("kernels/vector_add_kernel.cl", "r");
-        if (!fp)
+        for (int i = 0; i < A.size(); ++i)
         {
-                fprintf(stderr, "Failed to load kernel.\n");
-                exit(1);
+                A(i) = (float)rand() / (float)RAND_MAX;
+                B(i) = (float)rand() / (float)RAND_MAX;
         }
-        source_str = (char *)malloc(MAX_SOURCE_SIZE);
-        source_size = fread(source_str, 1, MAX_SOURCE_SIZE, fp);
-        fclose(fp);
 
-        cl_platform_id *platforms; // multiple
-        cl_device_id *devices;
-        cl_uint n_platforms;
-        cl_int ret = clGetPlatformIDs(0, NULL, &n_platforms);
-        platforms = new cl_platform_id[n_platforms];
+        // cout << A << endl
+        //      << endl;
+        // cout << B << endl
+        //      << endl;
+        C = A * B;
+        cout << C << endl
+             << endl;
 
-        clGetPlatformIDs(n_platforms, platforms, NULL);
+             C = Matrix::Identity(squareMatrixSize,squareMatrixSize);
 
-        //choose platform
-        int deviceId = 1; // NVIDIA
-
-        // cout << "Choose a platform/device[0-" << ret_num_platforms - 1 << "]:";
-        // cin >> deviceId;
-        char platName[100];
-        clGetPlatformInfo(platforms[deviceId], CL_PLATFORM_NAME, sizeof(platName), platName, NULL);
-        cout << "Platform: " << platName << endl;
-
-        devices = new cl_device_id;
-        ret = clGetDeviceIDs(platforms[deviceId], CL_DEVICE_TYPE_ALL, 1, devices, NULL);
+        // return 0;
 
         // Create an OpenCL context
-        cl_context context = clCreateContext(NULL, 1, devices, NULL, NULL, &ret);
-
+        cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &ret);
         // Create a command queue
-        cl_command_queue command_queue = clCreateCommandQueue(context, devices[0], 0, &ret);
+        cl_command_queue command_queue = clCreateCommandQueue(context, device, 0, &ret);
 
         // Create memory buffers on the device for each vector
         cl_mem a_mem_obj = clCreateBuffer(context, CL_MEM_READ_ONLY,
-                                          NElements * sizeof(float), NULL, &ret);
+                                          squareMatrixSize * squareMatrixSize * sizeof(float), NULL, &ret);
         cl_mem b_mem_obj = clCreateBuffer(context, CL_MEM_READ_ONLY,
-                                          NElements * sizeof(float), NULL, &ret);
+                                          squareMatrixSize * squareMatrixSize * sizeof(float), NULL, &ret);
         cl_mem c_mem_obj = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-                                          NElements * sizeof(float), NULL, &ret);
-
-        cout << "Total Device Memory Allocated(MB): " << (NElements * sizeof(float) * 3) / 1000000 << endl;
-
-        float *A = (float *)malloc(sizeof(float) * NElements);
-        float *B = (float *)malloc(sizeof(float) * NElements);
-
-        for (int i = 0; i < NElements; i++)
-        {
-                A[i] = i;
-                B[i] = NElements - i;
-        }
+                                          squareMatrixSize * squareMatrixSize * sizeof(float), NULL, &ret);
 
         // Copy the lists A and B to their respective memory buffers
         ret = clEnqueueWriteBuffer(command_queue, a_mem_obj, CL_TRUE, 0,
-                                   NElements * sizeof(float), A, 0, NULL, NULL);
+                                   squareMatrixSize * squareMatrixSize * sizeof(float), A.data(), 0, NULL, NULL);
+
         ret = clEnqueueWriteBuffer(command_queue, b_mem_obj, CL_TRUE, 0,
-                                   NElements * sizeof(float), B, 0, NULL, NULL);
+                                   squareMatrixSize * squareMatrixSize * sizeof(float), B.data(), 0, NULL, NULL);
 
-        // Create a program from the kernel source
-        cl_program program = clCreateProgramWithSource(context, 1,
-                                                       (const char **)&source_str, (const size_t *)&source_size, &ret);
+        cl_program clProgram;
 
-        // Build the program
-        ret = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
+        kernelLoader("kernels/matrix_mult_kernel.cl", clProgram, context);
+
+        ret = clBuildProgram(clProgram, 1, &device, NULL, NULL, NULL);
+
+        
+        if (ret != 0)
+        {
+                char log[1000];
+                clGetProgramBuildInfo(clProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(log)*sizeof(char), log,NULL);
+                cout << "Build Log: " << log << endl;
+                cout << getClErrorString(ret) << endl;
+                exit(-1);
+        }
 
         // Create the OpenCL kernel
-        cl_kernel kernel = clCreateKernel(program, "vector_add", &ret);
+        cl_kernel kernel = clCreateKernel(clProgram, "matrixMult", &ret);
+
+        Check("kernel",ret);
 
         // Set the arguments of the kernel
         ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&a_mem_obj);
         ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&b_mem_obj);
         ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&c_mem_obj);
+        Check("kernel arg 2",ret);
+        ret = clSetKernelArg(kernel, 3, sizeof(squareMatrixSize), (void *)&squareMatrixSize);
+        Check("kernel arg 3",ret);
+        ret = clSetKernelArg(kernel, 4, sizeof(squareMatrixSize), (void *)&squareMatrixSize);
+        Check("kernel arg 4",ret);
+
+        // ret = clSetKernelArg(kernel, 3, sizeof(cl_mem), &squareMatrixSize);
+        // ret = clSetKernelArg(kernel, 4, sizeof(cl_mem), &squareMatrixSize);
 
         // Execute the OpenCL kernel on the list
-        size_t global_item_size = NElements; // Process the entire lists
-        size_t local_item_size = 2;          // Process in groups of 64
-        start = std::chrono::high_resolution_clock::now();
-        ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL,
-                                     &global_item_size, &local_item_size, 0, NULL, NULL);
-        end = std::chrono::high_resolution_clock::now();
+        size_t global_item_size[2] = {squareMatrixSize,squareMatrixSize}; // Process the entire lists
+        size_t local_item_size[2] = {BLOCK_SIZE,BLOCK_SIZE};                 // Divide work items into groups of 64
 
-        if (ret != CL_SUCCESS)
-        {
-                std::cerr << getClErrorString(ret) << std::endl;
-                exit(-1);
-        }
+        ret = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL,
+                                     global_item_size, local_item_size, NULL, NULL, NULL);
 
-        std::cout << "GPU Elapsed Time: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() << " us" << std::endl;
+        Check("kernel enque",ret);
 
         // Read the memory buffer C on the device to the local variable C
-        float *C = new float[NElements];
+        // float *C = new float[]
         ret = clEnqueueReadBuffer(command_queue, c_mem_obj, CL_TRUE, 0,
-                                  NElements * sizeof(float), C, 0, NULL, NULL);
+                                  squareMatrixSize * squareMatrixSize * sizeof(float), C.data(), 0, NULL, NULL);
 
-        // CPU
-        float *C_cpu = new float[NElements];
-        start = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < NElements; ++i)
-        {
-                C_cpu[i] = A[i] + B[i];
-        }
-        end = std::chrono::high_resolution_clock::now();
-        std::cout << "CPU Elapsed Time: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() << " us" << std::endl;
 
-        // Checking Results
-        cout << "Cheking Results..." << endl;
-        bool allGood = true;
-        for (int i = 0; i < NElements; ++i)
-        {
-                if (C_cpu[i] != C[i])
-                {
-                        std::cout << "Wrong Results @ i=" << i
-                                  << " (" << C_cpu[i] << " != " << C[i] << ")\n";
-                        allGood = false;
-                        break;
-                }
-        }
-
-        if (allGood)
-                cout << "All Good!" << endl;
-
-        cin.get();
-        // Clean up
-        ret = clFlush(command_queue);
-        ret = clFinish(command_queue);
-        ret = clReleaseKernel(kernel);
-        ret = clReleaseProgram(program);
-        ret = clReleaseMemObject(a_mem_obj);
-        ret = clReleaseMemObject(b_mem_obj);
-        ret = clReleaseMemObject(c_mem_obj);
-        ret = clReleaseCommandQueue(command_queue);
-        ret = clReleaseContext(context);
-        free(A);
-        free(B);
-        free(C);
-        return 0;
+        Check("readResults",ret);
+        cout << C << endl
+             << endl;
 }
 
 void DevQuery()
